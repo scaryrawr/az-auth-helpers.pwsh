@@ -35,6 +35,11 @@ function Invoke-WithArtifactsToken {
     }
 }
 
+function bun {
+    # Pass all arguments directly to the original command
+    Invoke-WithArtifactsToken -CommandName 'bun' -Arguments $args
+}
+
 function npm {
     # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'npm' -Arguments $args
@@ -169,5 +174,5 @@ function Invoke-RushPnpm {
 Set-Alias -Name rush-pnpm -Value Invoke-RushPnpm
 
 # Export the functions
-Export-ModuleMember -Function yarn, npm, npx, pnpm, pnpx, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
+Export-ModuleMember -Function yarn, bun, npm, npx, pnpm, pnpx, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
 
