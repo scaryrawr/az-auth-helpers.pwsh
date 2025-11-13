@@ -25,7 +25,7 @@ function Invoke-WithArtifactsToken {
         }
         
         # Get the Azure access token
-        $env:ARTIFACTS_ACCESSTOKEN = az account get-access-token --query accessToken -o tsv
+        $env:ARTIFACTS_ACCESSTOKEN = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
         
         # Call the actual executable (not our function)
         & $originalCommand @Arguments
