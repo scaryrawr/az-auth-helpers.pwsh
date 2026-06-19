@@ -1,6 +1,6 @@
 # Azure Authentication Helpers for PowerShell
 
-A PowerShell module providing utility functions to simplify authentication with Azure Artifacts when using various JavaScript/TypeScript package managers.
+A PowerShell module providing utility functions to simplify authentication with Azure Artifacts when using JavaScript/TypeScript and NuGet package managers.
 
 ## Overview
 
@@ -36,6 +36,8 @@ Working with private packages in Azure Artifacts requires authentication token c
   - [Yarn](https://yarnpkg.com/getting-started/install) for yarn function
   - [pnpm](https://pnpm.io/installation) for pnpm/pnpx functions
   - [Rush](https://rushjs.io/pages/intro/get_started/) for rush/rush-pnpm functions
+  - [.NET SDK](https://dotnet.microsoft.com/download) for dotnet function
+  - [NuGet CLI](https://learn.microsoft.com/nuget/install-nuget-client-tools) for nuget function
 
 ## Supported Package Managers
 
@@ -48,6 +50,8 @@ This module provides wrapper functions for the following package managers:
 | npx        | Wrapper for npx package runner |
 | pnpm       | Wrapper for pnpm package manager |
 | pnpx       | Wrapper for pnpx package runner |
+| dotnet     | Wrapper for .NET CLI NuGet restore/package operations |
+| nuget      | Wrapper for NuGet CLI |
 | rush       | Wrapper for Rush monorepo tool |
 | rush-pnpm  | Wrapper for Rush using pnpm |
 | write-npm  | Utility to configure .npmrc with Azure tokens |
@@ -64,6 +68,8 @@ For example:
 yarn build --to package
 npm run test -- --watch
 pnpm add --save-dev typescript
+dotnet restore
+nuget restore
 rush build --to some-project --verbose
 ```
 
@@ -87,6 +93,9 @@ npm install
 # Run pnpm install with automatic Azure authentication
 pnpm install
 
+# Restore NuGet packages with automatic Azure authentication
+dotnet restore
+
 # Run a rush command with automatic Azure authentication
 rush update
 ```
@@ -102,6 +111,16 @@ All wrapper functions follow the same process:
 5. Automatically remove the token from environment variables after execution
 
 The wrappers are designed to be completely transparent in their behavior - they automatically forward all arguments to the original command without any additional handling or parsing. This ensures compatibility with all command-line options and arguments of the original tools.
+
+### NuGet and dotnet functions
+
+The `nuget` and `dotnet` functions also:
+
+1. Install the Azure Artifacts Credential Provider if it is not already available in `~/.nuget/plugins`
+2. Read Azure Artifacts package sources from `NuGet.config` files in the current directory hierarchy and the user NuGet config
+3. Set the `VSS_NUGET_ACCESSTOKEN` and `VSS_NUGET_URI_PREFIXES` environment variables used by the credential provider
+
+If you need to override feed matching, set `VSS_NUGET_URI_PREFIXES` before invoking `dotnet` or `nuget`.
 
 ### write-npm function
 
@@ -128,6 +147,10 @@ The `write-npm` function specifically:
 4. **Azure CLI authentication errors**
    - Run az login to authenticate with Azure
    - Ensure you have access to the Azure Artifacts feed
+
+5. **NuGet restore still returns 401/403**
+   - Ensure your `NuGet.config` contains the Azure Artifacts feed URL
+   - Set `VSS_NUGET_URI_PREFIXES` manually if your feed URL is not discoverable from `NuGet.config`
 
 ## License
 

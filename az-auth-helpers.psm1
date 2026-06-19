@@ -1,5 +1,4 @@
 function yarn {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'yarn' -Arguments $args
 }
 
@@ -11,8 +10,22 @@ function Invoke-WithArtifactsToken {
         [string]$CommandName,
         
         [Parameter()]
-        [object[]]$Arguments
+        [object[]]$Arguments,
+
+        [Parameter()]
+        [string[]]$TokenEnvironmentVariableNames = @('ARTIFACTS_ACCESSTOKEN'),
+
+        [Parameter()]
+        [hashtable]$EnvironmentVariables = @{}
     )
+
+    $environmentVariableNames = @($TokenEnvironmentVariableNames) + @($EnvironmentVariables.Keys)
+    $environmentVariableNames = $environmentVariableNames | Select-Object -Unique
+    $originalEnvironmentVariables = @{}
+
+    foreach ($environmentVariableName in $environmentVariableNames) {
+        $originalEnvironmentVariables[$environmentVariableName] = [Environment]::GetEnvironmentVariable($environmentVariableName, 'Process')
+    }
     
     try {
         # Store the original command path
@@ -25,39 +38,186 @@ function Invoke-WithArtifactsToken {
         }
         
         # Get the Azure access token
-        $env:ARTIFACTS_ACCESSTOKEN = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
+        $artifactsAccessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($artifactsAccessToken)) {
+            Write-Error 'Failed to get an Azure Artifacts access token. Run az login and verify you have access to the feed.'
+            return
+        }
+
+        foreach ($environmentVariableName in $TokenEnvironmentVariableNames) {
+            [Environment]::SetEnvironmentVariable($environmentVariableName, $artifactsAccessToken, 'Process')
+        }
+
+        foreach ($environmentVariableName in $EnvironmentVariables.Keys) {
+            [Environment]::SetEnvironmentVariable($environmentVariableName, $EnvironmentVariables[$environmentVariableName], 'Process')
+        }
         
         # Call the actual executable (not our function)
         & $originalCommand @Arguments
     }
     finally {
-        Remove-Item -Path Env:ARTIFACTS_ACCESSTOKEN -ErrorAction SilentlyContinue
+        foreach ($environmentVariableName in $environmentVariableNames) {
+            [Environment]::SetEnvironmentVariable($environmentVariableName, $originalEnvironmentVariables[$environmentVariableName], 'Process')
+        }
     }
 }
 
 function bun {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'bun' -Arguments $args
 }
 
 function npm {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'npm' -Arguments $args
 }
 
 function npx {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'npx' -Arguments $args
 }
 
 function pnpm {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'pnpm' -Arguments $args
 }
 
 function pnpx {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'pnpx' -Arguments $args
+}
+
+function Test-AzureArtifactsNuGetSource {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source
+    )
+
+    $sourceUri = $null
+    if (-not [System.Uri]::TryCreate($Source, [System.UriKind]::Absolute, [ref]$sourceUri)) {
+        return $false
+    }
+
+    return $sourceUri.Host -eq 'pkgs.dev.azure.com' -or $sourceUri.Host.EndsWith('.pkgs.visualstudio.com', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-NuGetConfigPaths {
+    [CmdletBinding()]
+    param()
+
+    $configPaths = [System.Collections.Generic.List[string]]::new()
+    $currentDirectory = Get-Item -LiteralPath (Get-Location)
+
+    while ($currentDirectory) {
+        foreach ($configFileName in @('NuGet.config', 'nuget.config', 'NuGet.Config')) {
+            $configPath = Join-Path -Path $currentDirectory.FullName -ChildPath $configFileName
+            if ((Test-Path -LiteralPath $configPath -PathType Leaf) -and -not $configPaths.Contains($configPath)) {
+                $configPaths.Add($configPath)
+            }
+        }
+
+        $currentDirectory = $currentDirectory.Parent
+    }
+
+    $applicationData = [Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+    if ($applicationData) {
+        $userConfigPath = Join-Path -Path $applicationData -ChildPath 'NuGet\NuGet.Config'
+        if ((Test-Path -LiteralPath $userConfigPath -PathType Leaf) -and -not $configPaths.Contains($userConfigPath)) {
+            $configPaths.Add($userConfigPath)
+        }
+    }
+
+    return $configPaths
+}
+
+function Get-NuGetArtifactsUriPrefixes {
+    [CmdletBinding()]
+    param()
+
+    if (-not [string]::IsNullOrWhiteSpace($env:VSS_NUGET_URI_PREFIXES)) {
+        return $env:VSS_NUGET_URI_PREFIXES
+    }
+
+    $uriPrefixes = [System.Collections.Generic.List[string]]::new()
+    $uriPrefixes.Add('https://pkgs.dev.azure.com/')
+
+    foreach ($configPath in Get-NuGetConfigPaths) {
+        [xml]$nugetConfig = Get-Content -LiteralPath $configPath -Raw
+        $packageSourceNodes = $nugetConfig.SelectNodes('//packageSources/add[@value]')
+
+        foreach ($packageSourceNode in $packageSourceNodes) {
+            $source = $packageSourceNode.GetAttribute('value').Trim()
+            if ((Test-AzureArtifactsNuGetSource -Source $source) -and -not $uriPrefixes.Contains($source)) {
+                $uriPrefixes.Add($source)
+            }
+        }
+    }
+
+    return ($uriPrefixes -join ';')
+}
+
+function Test-NuGetArtifactsCredentialProviderInstalled {
+    [CmdletBinding()]
+    param()
+
+    $pluginsPath = Join-Path -Path $HOME -ChildPath '.nuget\plugins'
+    if (-not (Test-Path -LiteralPath $pluginsPath -PathType Container)) {
+        return $false
+    }
+
+    return $null -ne (Get-ChildItem -LiteralPath $pluginsPath -Recurse -Filter 'CredentialProvider.Microsoft*' -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+function Install-NuGetArtifactsCredentialProvider {
+    [CmdletBinding()]
+    param()
+
+    if (Test-NuGetArtifactsCredentialProviderInstalled) {
+        return
+    }
+
+    $installerPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "install-artifacts-credprovider-$PID.ps1"
+    try {
+        Invoke-WebRequest -Uri 'https://aka.ms/install-artifacts-credprovider.ps1' -OutFile $installerPath -UseBasicParsing
+        & $installerPath -AddNetfx
+        if (-not $?) {
+            throw 'Azure Artifacts Credential Provider installation failed.'
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $installerPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-WithNuGetArtifactsToken {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+
+        [Parameter()]
+        [object[]]$Arguments
+    )
+
+    $originalCommand = Get-Command -Name $CommandName -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1 -ExpandProperty Source
+
+    if (-not $originalCommand) {
+        Write-Error "Original $CommandName executable not found."
+        return
+    }
+
+    Install-NuGetArtifactsCredentialProvider
+
+    Invoke-WithArtifactsToken `
+        -CommandName $CommandName `
+        -Arguments $Arguments `
+        -TokenEnvironmentVariableNames @('ARTIFACTS_ACCESSTOKEN', 'VSS_NUGET_ACCESSTOKEN') `
+        -EnvironmentVariables @{ VSS_NUGET_URI_PREFIXES = (Get-NuGetArtifactsUriPrefixes) }
+}
+
+function dotnet {
+    Invoke-WithNuGetArtifactsToken -CommandName 'dotnet' -Arguments $args
+}
+
+function nuget {
+    Invoke-WithNuGetArtifactsToken -CommandName 'nuget' -Arguments $args
 }
 
 function write-npm {
@@ -161,12 +321,10 @@ NOTES:
 }
 
 function rush {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'rush' -Arguments $args
 }
 
 function Invoke-RushPnpm {
-    # Pass all arguments directly to the original command
     Invoke-WithArtifactsToken -CommandName 'rush-pnpm' -Arguments $args
 }
 
@@ -174,5 +332,4 @@ function Invoke-RushPnpm {
 Set-Alias -Name rush-pnpm -Value Invoke-RushPnpm
 
 # Export the functions
-Export-ModuleMember -Function yarn, bun, npm, npx, pnpm, pnpx, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
-
+Export-ModuleMember -Function yarn, bun, npm, npx, pnpm, pnpx, dotnet, nuget, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
