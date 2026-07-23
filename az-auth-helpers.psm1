@@ -2,6 +2,10 @@ function yarn {
     Invoke-WithArtifactsToken -CommandName 'yarn' -Arguments $args
 }
 
+function corepack {
+    Invoke-WithArtifactsToken -CommandName 'corepack' -Arguments $args
+}
+
 # Shared helper function to execute commands with Azure Artifacts token
 function Invoke-WithArtifactsToken {
     [CmdletBinding()]
@@ -332,4 +336,4 @@ function Invoke-RushPnpm {
 Set-Alias -Name rush-pnpm -Value Invoke-RushPnpm
 
 # Export the functions
-Export-ModuleMember -Function yarn, bun, npm, npx, pnpm, pnpx, dotnet, nuget, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
+Export-ModuleMember -Function yarn, corepack, bun, npm, npx, pnpm, pnpx, dotnet, nuget, rush, Invoke-RushPnpm, write-npm -Alias rush-pnpm
