@@ -34,6 +34,7 @@ Working with private packages in Azure Artifacts requires authentication token c
 - Respective package managers installed for the functions you plan to use:
   - [Node.js and npm](https://nodejs.org/) for npm/npx functions
   - [Yarn](https://yarnpkg.com/getting-started/install) for yarn function
+  - [Corepack](https://nodejs.org/api/corepack.html) for corepack function
   - [pnpm](https://pnpm.io/installation) for pnpm/pnpx functions
   - [Rush](https://rushjs.io/pages/intro/get_started/) for rush/rush-pnpm functions
   - [.NET SDK](https://dotnet.microsoft.com/download) for dotnet function
@@ -46,6 +47,7 @@ This module provides wrapper functions for the following package managers:
 | Function   | Description |
 |------------|-------------|
 | yarn       | Wrapper for Yarn package manager |
+| corepack   | Wrapper for Corepack package manager |
 | npm        | Wrapper for npm package manager |
 | npx        | Wrapper for npx package runner |
 | pnpm       | Wrapper for pnpm package manager |
@@ -66,6 +68,7 @@ For example:
 
 ```powershell
 yarn build --to package
+corepack yarn install
 npm run test -- --watch
 pnpm add --save-dev typescript
 dotnet restore
